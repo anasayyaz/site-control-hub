@@ -3,7 +3,7 @@ import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
-import { getControl, openDb, setControl } from "./db.js";
+import { getControl, openStore, setControl } from "./store.js";
 
 const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = process.env.DATA_DIR || "./data";
@@ -20,7 +20,7 @@ const corsOrigins = (process.env.CORS_ORIGINS || "*")
   .map((s) => s.trim())
   .filter(Boolean);
 
-const db = openDb(DATA_DIR);
+const store = openStore(DATA_DIR);
 const app = express();
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -56,7 +56,7 @@ app.get("/health", (_req, res) => {
 
 /** Public — frontends poll this (or cache via CDN). */
 app.get("/api/v1/status", publicLimiter, (_req, res) => {
-  const control = getControl(db);
+  const control = getControl(store);
   res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=60");
   res.json({
     enabled: control.enabled,
@@ -82,7 +82,7 @@ function requireAdmin(req, res, next) {
 
 /** Admin — read current state (includes same fields as public). */
 app.get("/api/v1/admin/control", adminLimiter, requireAdmin, (_req, res) => {
-  res.json(getControl(db));
+  res.json(getControl(store));
 });
 
 /**
@@ -97,14 +97,14 @@ app.patch("/api/v1/admin/control", adminLimiter, requireAdmin, (req, res) => {
   ) {
     return res.status(400).json({ error: "enabled must be a boolean" });
   }
-  const next = setControl(db, { enabled, title, message });
+  const next = setControl(store, { enabled, title, message });
   res.json(next);
 });
 
 /** Admin — flip enabled without changing message. */
 app.post("/api/v1/admin/toggle", adminLimiter, requireAdmin, (_req, res) => {
-  const current = getControl(db);
-  const next = setControl(db, { enabled: !current.enabled });
+  const current = getControl(store);
+  const next = setControl(store, { enabled: !current.enabled });
   res.json(next);
 });
 
