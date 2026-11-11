@@ -64,7 +64,19 @@ curl -X PATCH "https://YOUR-SERVICE.onrender.com/api/v1/admin/control" \
 
 When `enabled` is `false`, each site should show a maintenance screen using `title` and `message` instead of the normal app.
 
-**Recommended:** call the status API from **server-side** middleware or a server component so the key is never exposed and you can block before loading heavy bundles.
+**You do not redeploy frontends when you toggle** — only when you first add the checker (one time). After that, flip `enabled` on the hub and sites pick it up within ~15 seconds (or on the next page load for server-rendered apps).
+
+### One script tag (static HTML or any host)
+
+Add once to `<head>` or before `</body>`:
+
+```html
+<script src="https://site-control-hub.onrender.com/gate.js" defer></script>
+```
+
+The script calls `/api/v1/status` on load and polls every 15s. All behavior is controlled from this service only.
+
+**Recommended for Next.js:** middleware (already in your apps) blocks before the page bundle loads.
 
 ## Deploy on Render
 
