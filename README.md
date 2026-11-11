@@ -1,5 +1,7 @@
 # Site Control Hub
 
+**Production:** [https://site-control-hub.onrender.com](https://site-control-hub.onrender.com)
+
 One small backend on [Render](https://render.com) that every site can check before serving traffic. Flip a single switch (or call one API) to take **all** frontends offline and show the same **title** and **message** to users.
 
 ## Quick start (local)
