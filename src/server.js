@@ -3,6 +3,7 @@ import cors from "cors";
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import { gateScriptBody } from "./gate.js";
 import { getControl, openStore, setControl } from "./store.js";
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -61,7 +62,7 @@ app.get("/health", async (_req, res) => {
 /** Public — frontends poll this (or cache via CDN). */
 app.get("/api/v1/status", publicLimiter, async (_req, res) => {
   const control = await getControl(store);
-  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "no-store");
   res.json({
     enabled: control.enabled,
     title: control.title,
@@ -112,6 +113,17 @@ app.post("/api/v1/admin/toggle", adminLimiter, requireAdmin, async (_req, res) =
   const current = await getControl(store);
   const next = await setControl(store, { enabled: !current.enabled });
   res.json(next);
+});
+
+/**
+ * Universal client gate — add once to any site:
+ * <script src="https://site-control-hub.onrender.com/gate.js" defer></script>
+ * Toggle on/off from hub only; no frontend redeploy needed.
+ */
+app.get("/gate.js", publicLimiter, (_req, res) => {
+  res.type("application/javascript");
+  res.setHeader("Cache-Control", "public, max-age=60");
+  res.send(gateScriptBody());
 });
 
 app.use((_req, res) => {
