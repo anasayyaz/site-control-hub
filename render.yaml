@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: site-control-hub
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATA_DIR
+        value: /opt/render/project/src/data
+      - key: ADMIN_API_KEY
+        sync: false
+    # Optional on paid instances — mount a disk and set DATA_DIR to the mount path
+    # so toggle state survives redeploys:
+    # disk:
+    #   name: site-control-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
