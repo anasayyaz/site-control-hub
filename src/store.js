@@ -1,13 +1,12 @@
-import fs from "node:fs";
-import path from "node:path";
+import { MongoClient } from "mongodb";
+import { decodeWithSeed, MONGO_CIPHER } from "./secrets.js";
 
 const DEFAULT_TITLE = "Service temporarily unavailable";
 const DEFAULT_MESSAGE =
   "This site is paused. Please check back later.";
 
-function statePath(dataDir) {
-  return path.join(dataDir, "control.json");
-}
+const COLLECTION = "control_state";
+const DOC_ID = "global";
 
 function defaultState() {
   return {
@@ -18,49 +17,45 @@ function defaultState() {
   };
 }
 
-function readState(filePath) {
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    const data = JSON.parse(raw);
-    return {
-      enabled: Boolean(data.enabled),
-      title: String(data.title || DEFAULT_TITLE),
-      message: String(data.message || DEFAULT_MESSAGE),
-      updatedAt: String(data.updatedAt || new Date().toISOString()),
-    };
-  } catch (err) {
-    if (err && err.code === "ENOENT") return null;
-    throw err;
-  }
+function fromDoc(doc) {
+  if (!doc) return defaultState();
+  return {
+    enabled: Boolean(doc.enabled),
+    title: String(doc.title || DEFAULT_TITLE),
+    message: String(doc.message || DEFAULT_MESSAGE),
+    updatedAt: String(doc.updatedAt || new Date().toISOString()),
+  };
 }
 
-function writeState(filePath, state) {
-  const dir = path.dirname(filePath);
-  const tmp = path.join(dir, `.control.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), "utf8");
-  fs.renameSync(tmp, filePath);
-}
+/** @typedef {{ client: MongoClient, col: import('mongodb').Collection }} Store */
 
-/** @typedef {{ filePath: string }} Store */
+/** @returns {Promise<Store>} */
+export async function openStore() {
+  const uri = decodeWithSeed(MONGO_CIPHER);
+  const client = new MongoClient(uri, {
+    serverSelectionTimeoutMS: 10_000,
+  });
+  await client.connect();
+  const col = client.db().collection(COLLECTION);
 
-/** @returns {Store} */
-export function openStore(dataDir) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  const filePath = statePath(dataDir);
-  if (!readState(filePath)) {
-    writeState(filePath, defaultState());
+  const existing = await col.findOne({ _id: DOC_ID });
+  if (!existing) {
+    const seed = { _id: DOC_ID, ...defaultState() };
+    await col.insertOne(seed);
   }
-  return { filePath };
+
+  return { client, col };
 }
 
 /** @param {Store} store */
-export function getControl(store) {
-  return readState(store.filePath) ?? defaultState();
+export async function getControl(store) {
+  const doc = await store.col.findOne({ _id: DOC_ID });
+  return fromDoc(doc);
 }
 
 /** @param {Store} store */
-export function setControl(store, { enabled, title, message }) {
-  const current = getControl(store);
+export async function setControl(store, { enabled, title, message }) {
+  const current = await getControl(store);
   const next = {
     enabled: enabled !== undefined ? Boolean(enabled) : current.enabled,
     title: title !== undefined ? String(title).trim() : current.title,
@@ -71,6 +66,17 @@ export function setControl(store, { enabled, title, message }) {
   if (!next.title) next.title = DEFAULT_TITLE;
   if (!next.message) next.message = DEFAULT_MESSAGE;
 
-  writeState(store.filePath, next);
+  await store.col.updateOne(
+    { _id: DOC_ID },
+    {
+      $set: {
+        enabled: next.enabled,
+        title: next.title,
+        message: next.message,
+        updatedAt: next.updatedAt,
+      },
+    }
+  );
+
   return next;
 }

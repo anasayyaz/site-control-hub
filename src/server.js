@@ -6,7 +6,6 @@ import helmet from "helmet";
 import { getControl, openStore, setControl } from "./store.js";
 
 const PORT = Number(process.env.PORT) || 3000;
-const DATA_DIR = process.env.DATA_DIR || "./data";
 const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
 
 if (!ADMIN_API_KEY) {
@@ -20,7 +19,7 @@ const corsOrigins = (process.env.CORS_ORIGINS || "*")
   .map((s) => s.trim())
   .filter(Boolean);
 
-const store = openStore(DATA_DIR);
+const store = await openStore();
 const app = express();
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -50,13 +49,18 @@ const adminLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+app.get("/health", async (_req, res) => {
+  try {
+    await getControl(store);
+    res.json({ ok: true, storage: "mongodb" });
+  } catch (err) {
+    res.status(503).json({ ok: false, error: "Database unavailable" });
+  }
 });
 
 /** Public — frontends poll this (or cache via CDN). */
-app.get("/api/v1/status", publicLimiter, (_req, res) => {
-  const control = getControl(store);
+app.get("/api/v1/status", publicLimiter, async (_req, res) => {
+  const control = await getControl(store);
   res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=60");
   res.json({
     enabled: control.enabled,
@@ -81,30 +85,32 @@ function requireAdmin(req, res, next) {
 }
 
 /** Admin — read current state (includes same fields as public). */
-app.get("/api/v1/admin/control", adminLimiter, requireAdmin, (_req, res) => {
-  res.json(getControl(store));
-});
+app.get(
+  "/api/v1/admin/control",
+  adminLimiter,
+  requireAdmin,
+  async (_req, res) => {
+    res.json(await getControl(store));
+  }
+);
 
 /**
  * Admin — set enabled flag and/or user-facing copy.
  * Body: { "enabled": false, "title": "...", "message": "..." }
  */
-app.patch("/api/v1/admin/control", adminLimiter, requireAdmin, (req, res) => {
+app.patch("/api/v1/admin/control", adminLimiter, requireAdmin, async (req, res) => {
   const { enabled, title, message } = req.body ?? {};
-  if (
-    enabled !== undefined &&
-    typeof enabled !== "boolean"
-  ) {
+  if (enabled !== undefined && typeof enabled !== "boolean") {
     return res.status(400).json({ error: "enabled must be a boolean" });
   }
-  const next = setControl(store, { enabled, title, message });
+  const next = await setControl(store, { enabled, title, message });
   res.json(next);
 });
 
 /** Admin — flip enabled without changing message. */
-app.post("/api/v1/admin/toggle", adminLimiter, requireAdmin, (_req, res) => {
-  const current = getControl(store);
-  const next = setControl(store, { enabled: !current.enabled });
+app.post("/api/v1/admin/toggle", adminLimiter, requireAdmin, async (_req, res) => {
+  const current = await getControl(store);
+  const next = await setControl(store, { enabled: !current.enabled });
   res.json(next);
 });
 
